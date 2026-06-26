@@ -48,7 +48,9 @@ import tools.web_tools as web_tools
 import tools.airtable_tools as airtable_tools
 import tools.image_tools as image_tools
 import tools.content_tools as content_tools
+import tools.content_tools as content_tools
 import tools.gdrive_tools as gdrive_tools
+import tools.graphic_design_tools as graphic_design_tools
 
 # ─── Logging Setup ────────────────────────────────────────────────────────────
 
@@ -176,6 +178,17 @@ AURA_TOOLS = [
             )
         ),
         types.FunctionDeclaration(
+            name="generate_sakluma_yellow",
+            description="Generate a graphic design image (SaklumaYellow template). Use this for quotes, short info, or headers. MUST provide text.",
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "text": types.Schema(type=types.Type.STRING, description="The headline, quote, or short text to be centered in the graphic."),
+                },
+                required=["text"]
+            )
+        ),
+        types.FunctionDeclaration(
             name="list_available_styles",
             description="List all available content writing styles for AURA. Call when user asks what styles are available.",
             parameters=types.Schema(type=types.Type.OBJECT, properties={})
@@ -249,6 +262,8 @@ def dispatch_tool(name: str, args: dict) -> Any:
             return airtable_tools.list_airtable_drafts(**args)
         elif name == "generate_image":
             return image_tools.generate_image(**args)
+        elif name == "generate_sakluma_yellow":
+            return graphic_design_tools.generate_sakluma_yellow(**args)
         elif name == "build_image_prompt":
             return image_tools.build_image_prompt(**args)
         elif name == "list_drive_files":
@@ -372,16 +387,18 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ Akses tidak dibenarkan.")
         return
 
+    keyboard = [
+        [InlineKeyboardButton("🌐 Scrape & Rewrite", callback_data="mode_scrape")],
+        [InlineKeyboardButton("🕵️ Research Isu Semasa", callback_data="mode_research")],
+        [InlineKeyboardButton("🎨 Aura GD (Graphic Designer)", callback_data="mode_gd")],
+        [InlineKeyboardButton("🖼️ Aura Art (AI Image Gen)", callback_data="mode_art")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
     await update.message.reply_text(
         f"Hey boss! Saya AURA — assistant awak yang sentiasa standby. 😊\n\n"
-        f"Apa yang awak nak settlekan hari ni?\n\n"
-        f"*Capabilities saya:*\n"
-        f"• 📰 Scrape & rewrite artikel → save ke Airtable\n"
-        f"• 🎨 Jana gambar AI (Flux Schnell)\n"
-        f"• 🔍 Research & web search\n"
-        f"• 💬 Chat, soal-jawab, brainstorm\n\n"
-        f"Hantar je link artikel atau taip apa yang nak dibuat.",
-        parse_mode="Markdown"
+        f"Pilih Focus Mode untuk mula:",
+        reply_markup=reply_markup
     )
 
 
@@ -584,6 +601,29 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "style_santaimalaysia": "Santai Malaysia",
         "style_genz": "GenZ",
     }
+
+    mode_map = {
+        "mode_scrape": "🌐 Scrape & Rewrite",
+        "mode_research": "🕵️ Research Isu Semasa",
+        "mode_gd": "🎨 Aura GD (Graphic Designer)",
+        "mode_art": "🖼️ Aura Art (AI Image Gen)"
+    }
+
+    if data in mode_map:
+        selected_mode = mode_map[data]
+        await query.edit_message_reply_markup(reply_markup=None)
+        
+        user_message = f"Sistem: Bos telah memilih Focus Mode: {selected_mode}. Sila jawab dengan pendek untuk bantu bos mulakan tugas ini."
+        await context.bot.send_message(chat_id=chat_id, text=f"_(Bos berada dalam mode: {selected_mode})_\nSila hantar arahan/bahan:", parse_mode="Markdown")
+
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+        try:
+            reply_text = await run_aura_agent(chat_id, user_message)
+            await context.bot.send_message(chat_id=chat_id, text=reply_text)
+        except Exception as e:
+            logger.error(f"[ERROR] chat_id={chat_id} | {e}", exc_info=True)
+            await context.bot.send_message(chat_id=chat_id, text="Hmm, ada issue kat system saya. Cuba lagi?")
+        return
 
     if data in style_map:
         selected_style = style_map[data]

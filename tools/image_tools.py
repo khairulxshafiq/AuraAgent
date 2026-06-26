@@ -66,18 +66,21 @@ def generate_image(
     replicate_token = os.environ.get("REPLICATE_API_TOKEN", "")
 
     if not replicate_token:
-        # Return prompt-only fallback (image_crew behavior)
+        # Fallback to Pollinations.ai (Free, no token required)
+        logger.info("No REPLICATE_API_TOKEN found. Falling back to Pollinations.ai")
+        # Pollinations requires URL-encoded prompt
+        import urllib.parse
+        encoded_prompt = urllib.parse.quote(full_prompt)
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={dims['width']}&height={dims['height']}&nologo=true"
+        
         return {
-            "status": "prompt_only",
+            "status": "success",
+            "image_url": image_url,
             "prompt": full_prompt,
-            "negative_prompt": NEGATIVE_PROMPT,
             "style": style,
             "dimensions": f"{dims['width']}x{dims['height']}",
             "aspect_ratio": dims["aspect_ratio"],
-            "message": (
-                "Prompt gambar dah siap. Untuk generate gambar sebenar, "
-                "set REPLICATE_API_TOKEN dalam .env anda."
-            )
+            "message": f"Gambar dijana (Pollinations Fallback)! Dimensi: {dims['width']}x{dims['height']}"
         }
 
     # Call Replicate Flux Schnell
