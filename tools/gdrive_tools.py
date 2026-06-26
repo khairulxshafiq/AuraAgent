@@ -255,7 +255,6 @@ def upload_to_drive(
         with httpx.Client(timeout=30) as client:
             resp = client.post(
                 f"{GDRIVE_UPLOAD_API}/files",
-                headers=headers,
                 params={"uploadType": "multipart", "fields": "id,name,webViewLink"},
                 content=_build_multipart(metadata, content_bytes, mime_type),
                 headers={
