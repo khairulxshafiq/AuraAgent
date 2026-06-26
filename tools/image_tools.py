@@ -1,0 +1,176 @@
+"""
+tools/image_tools.py
+
+Image generation tools for AURA SDK.
+Replaces: aura-hermes image_generator.py
+Uses Replicate (Flux Schnell) or returns prompt-only if no key configured.
+"""
+
+import os
+import time
+import logging
+from typing import Optional
+
+import httpx
+
+logger = logging.getLogger("aura.tools.image")
+
+PLATFORM_DIMS = {
+    "instagram": {"width": 1024, "height": 1024, "aspect_ratio": "1:1"},
+    "facebook": {"width": 1200, "height": 630, "aspect_ratio": "1.91:1"},
+    "twitter": {"width": 1200, "height": 675, "aspect_ratio": "16:9"},
+    "linkedin": {"width": 1200, "height": 627, "aspect_ratio": "1.91:1"},
+    "threads": {"width": 1080, "height": 1080, "aspect_ratio": "1:1"},
+}
+
+QUALITY_MODIFIERS = [
+    "high quality", "professional", "detailed",
+    "sharp focus", "high resolution", "studio lighting"
+]
+
+NEGATIVE_PROMPT = (
+    "blurry, low quality, distorted face, extra limbs, watermark, "
+    "text overlay, cartoon, anime, oversaturated, deformed, "
+    "bad anatomy, ugly, disfigured, noisy, grainy"
+)
+
+
+def generate_image(
+    description: str,
+    style: str = "photorealistic",
+    platform: str = "instagram",
+    brand_colors: str = ""
+) -> dict:
+    """Generate an image using AI based on a description.
+
+    Args:
+        description: What the image should depict. Be as detailed as possible.
+        style: Visual style — 'photorealistic', 'artistic', 'minimalist', 'illustration', 'cartoon'.
+        platform: Target social media platform for dimensions — 'instagram', 'facebook', 'twitter', 'linkedin', 'threads'.
+        brand_colors: Optional comma-separated brand colors to incorporate (e.g. 'navy blue, gold, white').
+    """
+    dims = PLATFORM_DIMS.get(platform.lower(), PLATFORM_DIMS["instagram"])
+
+    # Build prompt
+    prompt_parts = [description.strip()]
+    if brand_colors:
+        prompt_parts.append(f"color palette: {brand_colors}")
+
+    lighting = "studio lighting" if style == "photorealistic" else "artistic lighting"
+    quality = QUALITY_MODIFIERS.copy()
+    quality[quality.index("studio lighting")] = lighting
+    prompt_parts.extend(quality)
+
+    full_prompt = ", ".join(prompt_parts)
+
+    replicate_token = os.environ.get("REPLICATE_API_TOKEN", "")
+
+    if not replicate_token:
+        # Return prompt-only fallback (image_crew behavior)
+        return {
+            "status": "prompt_only",
+            "prompt": full_prompt,
+            "negative_prompt": NEGATIVE_PROMPT,
+            "style": style,
+            "dimensions": f"{dims['width']}x{dims['height']}",
+            "aspect_ratio": dims["aspect_ratio"],
+            "message": (
+                "Prompt gambar dah siap. Untuk generate gambar sebenar, "
+                "set REPLICATE_API_TOKEN dalam .env anda."
+            )
+        }
+
+    # Call Replicate Flux Schnell
+    try:
+        headers = {
+            "Authorization": f"Token {replicate_token}",
+            "Content-Type": "application/json"
+        }
+
+        # Submit prediction
+        payload = {
+            "version": "black-forest-labs/flux-schnell",
+            "input": {
+                "prompt": full_prompt,
+                "width": dims["width"],
+                "height": dims["height"],
+                "num_inference_steps": 4,
+                "negative_prompt": NEGATIVE_PROMPT,
+            }
+        }
+
+        with httpx.Client(timeout=10) as client:
+            resp = client.post(
+                "https://api.replicate.com/v1/predictions",
+                headers=headers,
+                json=payload
+            )
+            resp.raise_for_status()
+            prediction = resp.json()
+            prediction_id = prediction.get("id")
+            poll_url = prediction.get("urls", {}).get("get", "")
+
+        # Poll for completion
+        if not poll_url:
+            return {"status": "error", "error": "No polling URL from Replicate"}
+
+        for attempt in range(30):  # max 30 * 2s = 60s
+            time.sleep(2)
+            with httpx.Client(timeout=10) as client:
+                poll_resp = client.get(poll_url, headers=headers)
+                poll_resp.raise_for_status()
+                poll_data = poll_resp.json()
+
+            poll_status = poll_data.get("status")
+            if poll_status == "succeeded":
+                output_urls = poll_data.get("output", [])
+                image_url = output_urls[0] if output_urls else ""
+                return {
+                    "status": "success",
+                    "image_url": image_url,
+                    "prompt": full_prompt,
+                    "style": style,
+                    "dimensions": f"{dims['width']}x{dims['height']}",
+                    "aspect_ratio": dims["aspect_ratio"],
+                    "message": f"Gambar berjaya dijana! Dimensions: {dims['width']}x{dims['height']}"
+                }
+            elif poll_status == "failed":
+                error = poll_data.get("error", "Unknown error")
+                return {"status": "error", "error": f"Replicate generation failed: {error}"}
+
+        return {"status": "error", "error": "Image generation timed out after 60 seconds."}
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Replicate HTTP error: {e.response.status_code}")
+        return {"status": "error", "error": f"Replicate API error {e.response.status_code}"}
+    except Exception as e:
+        logger.error(f"Image generation error: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+def build_image_prompt(
+    topic: str,
+    style: str = "photorealistic",
+    platform: str = "instagram"
+) -> dict:
+    """Build an optimised AI image prompt from a topic without generating the actual image.
+    Use this first when you want to preview or refine the prompt before generating.
+
+    Args:
+        topic: The subject or theme for the image.
+        style: Visual style — 'photorealistic', 'artistic', 'minimalist', 'illustration'.
+        platform: Target platform for sizing context — 'instagram', 'facebook', 'twitter'.
+    """
+    dims = PLATFORM_DIMS.get(platform.lower(), PLATFORM_DIMS["instagram"])
+    quality = ", ".join(QUALITY_MODIFIERS)
+    prompt = f"{topic}, {style}, {quality}"
+
+    return {
+        "status": "success",
+        "prompt": prompt,
+        "negative_prompt": NEGATIVE_PROMPT,
+        "style": style,
+        "platform": platform,
+        "dimensions": f"{dims['width']}x{dims['height']}",
+        "aspect_ratio": dims["aspect_ratio"]
+    }
