@@ -17,6 +17,7 @@ Deploy: Railway.app (single Python service, single process)
 """
 
 import os
+import sys
 import re
 import json
 import asyncio
@@ -46,13 +47,15 @@ import tools.web_tools as web_tools
 import tools.airtable_tools as airtable_tools
 import tools.image_tools as image_tools
 import tools.content_tools as content_tools
+import tools.gdrive_tools as gdrive_tools
 
 # ─── Logging Setup ────────────────────────────────────────────────────────────
 
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
     format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
-    level=getattr(logging, log_level, logging.INFO)
+    level=getattr(logging, log_level, logging.INFO),
+    stream=sys.stdout  # Railway: output to stdout so logs appear white, not red
 )
 logger = logging.getLogger("aura.main")
 
@@ -176,6 +179,52 @@ AURA_TOOLS = [
             description="List all available content writing styles for AURA. Call when user asks what styles are available.",
             parameters=types.Schema(type=types.Type.OBJECT, properties={})
         ),
+        types.FunctionDeclaration(
+            name="list_drive_files",
+            description="List files in the AURA Google Drive folder. Use this when bos asks to see what files are in Drive, or to find reference materials.",
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "max_files": types.Schema(type=types.Type.INTEGER, description="Max files to list (default 20)"),
+                },
+            )
+        ),
+        types.FunctionDeclaration(
+            name="read_drive_file",
+            description="Read the content of a text file, Google Doc, or Google Sheet from Drive. Use file_id from list_drive_files result.",
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "file_id": types.Schema(type=types.Type.STRING, description="Google Drive file ID"),
+                    "max_chars": types.Schema(type=types.Type.INTEGER, description="Max characters to read (default 8000)"),
+                },
+                required=["file_id"]
+            )
+        ),
+        types.FunctionDeclaration(
+            name="search_drive_files",
+            description="Search for files by name in the AURA Google Drive folder.",
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "query": types.Schema(type=types.Type.STRING, description="Search term — find files with this name"),
+                    "max_results": types.Schema(type=types.Type.INTEGER, description="Max results (default 10)"),
+                },
+                required=["query"]
+            )
+        ),
+        types.FunctionDeclaration(
+            name="save_text_to_drive",
+            description="Save text content (ideas, notes, drafts) as a .txt or .md file to the AURA Google Drive folder. Use when bos asks to save or dump text to Drive.",
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "text": types.Schema(type=types.Type.STRING, description="Text content to save"),
+                    "filename": types.Schema(type=types.Type.STRING, description="Filename with extension e.g. brainstorm.md, notes.txt"),
+                },
+                required=["text", "filename"]
+            )
+        ),
     ])
 ]
 
@@ -201,6 +250,14 @@ def dispatch_tool(name: str, args: dict) -> Any:
             return image_tools.generate_image(**args)
         elif name == "build_image_prompt":
             return image_tools.build_image_prompt(**args)
+        elif name == "list_drive_files":
+            return gdrive_tools.list_drive_files(**args)
+        elif name == "read_drive_file":
+            return gdrive_tools.read_drive_file(**args)
+        elif name == "search_drive_files":
+            return gdrive_tools.search_drive_files(**args)
+        elif name == "save_text_to_drive":
+            return gdrive_tools.save_text_to_drive(**args)
         else:
             return {"status": "error", "error": f"Unknown tool: {name}"}
     except Exception as e:
