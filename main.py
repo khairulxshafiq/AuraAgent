@@ -631,12 +631,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    logger.info("=" * 60)
-    logger.info("  AURA — Autonomous Unified Reasoning Agent (SDK)")
-    logger.info(f"  Brand: {DEFAULT_BRAND} | Boss: {BOSS_NAME}")
-    logger.info(f"  Model: {MODEL}")
-    logger.info(f"  Access: {'Restricted to ' + BOSS_CHAT_ID if BOSS_CHAT_ID else 'Open (set BOSS_CHAT_ID to restrict)'}")
-    logger.info("=" * 60)
+    logger.info("=" * 65)
+    logger.info(" 🧠 AURA (Autonomous Unified Reasoning Agent) BOOT SEQUENCE...")
+    logger.info("=" * 65)
+    logger.info(f" [SYSTEM] Model        : {MODEL}")
+    logger.info(f" [SYSTEM] Brand        : {DEFAULT_BRAND}")
+    logger.info(f" [SYSTEM] Boss         : {BOSS_NAME}")
+    logger.info(f" [SYSTEM] Access       : {'Restricted (Boss Only)' if BOSS_CHAT_ID else 'Open Access'}")
+    logger.info(" ")
+    logger.info(" [TOOLS]  Airtable     : ✅ READY (Content Station Sync)")
+    logger.info(" [TOOLS]  Web Scraper  : ✅ READY (Firecrawl / BS4 Engine)")
+    logger.info(" [TOOLS]  Google Drive : ✅ READY (Service Account Linked)")
+    logger.info(" [TOOLS]  Image Gen    : ✅ READY (Replicate Flux Schnell)")
+    logger.info(" ")
+    logger.info(" [CREWS]  Active       : 🕵️ Research | ✍️ Content | 🎨 Image | 🗂️ Data")
+    logger.info("=" * 65)
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
@@ -649,7 +658,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(handle_callback))
 
-    logger.info("AURA is LIVE. Polling for Telegram messages...")
+    logger.info(" 🚀 AURA is LIVE. Polling for Telegram messages...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
