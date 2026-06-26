@@ -30,11 +30,12 @@ load_dotenv()
 import google.genai as genai
 from google.genai import types
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     ContextTypes,
     filters,
 )
@@ -514,13 +515,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         reply_text = await run_aura_agent(chat_id, user_message)
 
+        # Check for [STYLE_BUTTONS] tag
+        reply_markup = None
+        if "[STYLE_BUTTONS]" in reply_text:
+            reply_text = reply_text.replace("[STYLE_BUTTONS]", "").strip()
+            keyboard = [
+                [
+                    InlineKeyboardButton("👨‍🏫 Cikgu Fadhli", callback_data="style_cikgufadhli"),
+                    InlineKeyboardButton("✨ Sakluma", callback_data="style_sakluma")
+                ],
+                [
+                    InlineKeyboardButton("💼 Marketing", callback_data="style_marketing"),
+                    InlineKeyboardButton("🏖️ Santai Malaysia", callback_data="style_santaimalaysia")
+                ],
+                [
+                    InlineKeyboardButton("📱 GenZ", callback_data="style_genz")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
         # Handle Telegram 4096 char limit
         if len(reply_text) > 4096:
             chunks = [reply_text[i:i+4000] for i in range(0, len(reply_text), 4000)]
-            for chunk in chunks:
-                await update.message.reply_text(chunk)
+            for i, chunk in enumerate(chunks):
+                if i == len(chunks) - 1:
+                    await update.message.reply_text(chunk, reply_markup=reply_markup)
+                else:
+                    await update.message.reply_text(chunk)
         else:
-            await update.message.reply_text(reply_text)
+            await update.message.reply_text(reply_text, reply_markup=reply_markup)
 
         logger.info(f"[REPLY] chat_id={chat_id} | length={len(reply_text)}")
 
@@ -539,6 +562,70 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Gambar received! Feature image analysis coming soon. "
         "For now, hantar description dan saya generate gambar baru."
     )
+
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle inline button clicks."""
+    query = update.callback_query
+    await query.answer()
+
+    chat_id = str(update.effective_chat.id)
+    if not is_authorized(chat_id):
+        return
+
+    data = query.data
+    logger.info(f"[CALLBACK] chat_id={chat_id} | data={data}")
+
+    # Map callback data to style names
+    style_map = {
+        "style_cikgufadhli": "Cikgu Fadhli",
+        "style_sakluma": "Sakluma",
+        "style_marketing": "Marketing",
+        "style_santaimalaysia": "Santai Malaysia",
+        "style_genz": "GenZ",
+    }
+
+    if data in style_map:
+        selected_style = style_map[data]
+        user_message = f"Saya pilih gaya {selected_style}"
+        
+        # Remove buttons from original message
+        await query.edit_message_reply_markup(reply_markup=None)
+        
+        # Show what user selected
+        await context.bot.send_message(chat_id=chat_id, text=f"_(Bos tekan: {selected_style})_", parse_mode="Markdown")
+
+        # Process via AURA
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+        try:
+            reply_text = await run_aura_agent(chat_id, user_message)
+            
+            # Re-check for buttons in reply (unlikely, but just in case)
+            reply_markup = None
+            if "[STYLE_BUTTONS]" in reply_text:
+                reply_text = reply_text.replace("[STYLE_BUTTONS]", "").strip()
+                keyboard = [
+                    [InlineKeyboardButton("👨‍🏫 Cikgu Fadhli", callback_data="style_cikgufadhli"), InlineKeyboardButton("✨ Sakluma", callback_data="style_sakluma")],
+                    [InlineKeyboardButton("💼 Marketing", callback_data="style_marketing"), InlineKeyboardButton("🏖️ Santai Malaysia", callback_data="style_santaimalaysia")],
+                    [InlineKeyboardButton("📱 GenZ", callback_data="style_genz")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+            if len(reply_text) > 4096:
+                chunks = [reply_text[i:i+4000] for i in range(0, len(reply_text), 4000)]
+                for i, chunk in enumerate(chunks):
+                    if i == len(chunks) - 1:
+                        await context.bot.send_message(chat_id=chat_id, text=chunk, reply_markup=reply_markup)
+                    else:
+                        await context.bot.send_message(chat_id=chat_id, text=chunk)
+            else:
+                await context.bot.send_message(chat_id=chat_id, text=reply_text, reply_markup=reply_markup)
+                
+            logger.info(f"[REPLY] chat_id={chat_id} | length={len(reply_text)}")
+        except Exception as e:
+            logger.error(f"[ERROR] chat_id={chat_id} | {e}", exc_info=True)
+            await context.bot.send_message(chat_id=chat_id, text="Hmm, ada issue kat system saya. Cuba lagi?")
+
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
@@ -560,6 +647,7 @@ def main():
     app.add_handler(CommandHandler("clear", handle_clear))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CallbackQueryHandler(handle_callback))
 
     logger.info("AURA is LIVE. Polling for Telegram messages...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
