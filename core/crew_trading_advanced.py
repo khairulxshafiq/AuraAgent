@@ -1,43 +1,34 @@
 import os
 import asyncio
 from crewai import Agent, Task, Crew, Process
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.tools import Tool
+from crewai.tools import tool
 
 from tools.stock_tools import get_stock_quote, get_financial_ratios
 from tools.technical_tools import get_rsi, get_sma
 
 # 1. Definisikan LLM
-llm = ChatGoogleGenerativeAI(
-    model="gemini-1.5-pro",
-    temperature=0.2,
-    google_api_key=os.getenv("GEMINI_API_KEY")
-)
+llm = "gemini/gemini-1.5-pro"
 
-# 2. Balut Python Functions kepada LangChain Tools untuk CrewAI
-quote_tool = Tool(
-    name="Get Stock Quote",
-    func=get_stock_quote,
-    description="Berguna untuk mendapatkan harga semasa dan info asas saham. Input mesti simbol saham (contoh: '1155.KL')."
-)
+# 2. Balut Python Functions kepada CrewAI Tools
+@tool("Get Stock Quote")
+def quote_tool(symbol: str) -> dict:
+    """Berguna untuk mendapatkan harga semasa dan info asas saham. Input mesti simbol saham (contoh: '1155.KL')."""
+    return get_stock_quote(symbol)
 
-ratios_tool = Tool(
-    name="Get Fundamental Ratios",
-    func=get_financial_ratios,
-    description="Berguna untuk mendapatkan Dividend Yield, ROE, Payout Ratio, dan P/E. Input mesti simbol saham (contoh: '1155.KL')."
-)
+@tool("Get Fundamental Ratios")
+def ratios_tool(symbol: str) -> dict:
+    """Berguna untuk mendapatkan Dividend Yield, ROE, Payout Ratio, dan P/E. Input mesti simbol saham (contoh: '1155.KL')."""
+    return get_financial_ratios(symbol)
 
-rsi_tool = Tool(
-    name="Get Technical RSI",
-    func=get_rsi,
-    description="Berguna untuk semak status Overbought (>70) atau Oversold (<30) saham. Input mesti simbol saham."
-)
+@tool("Get Technical RSI")
+def rsi_tool(symbol: str) -> dict:
+    """Berguna untuk semak status Overbought (>70) atau Oversold (<30) saham. Input mesti simbol saham."""
+    return get_rsi(symbol)
 
-sma_tool = Tool(
-    name="Get Technical SMA",
-    func=get_sma,
-    description="Berguna untuk semak trend harga (berada di atas atau bawah SMA-50). Input mesti simbol saham."
-)
+@tool("Get Technical SMA")
+def sma_tool(symbol: str) -> dict:
+    """Berguna untuk semak trend harga (berada di atas atau bawah SMA-50). Input mesti simbol saham."""
+    return get_sma(symbol)
 
 def analyze_stock_crew(symbol: str) -> str:
     """Jalankan Multi-Agent CrewAI Analysis"""
