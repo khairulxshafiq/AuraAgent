@@ -43,12 +43,13 @@ from telegram.constants import ChatAction
 
 from core.persona import get_system_instructions
 from core import session as SessionManager
+from core.crew_trading import analyze_stock_sync
 
 import tools.web_tools as web_tools
 import tools.airtable_tools as airtable_tools
 import tools.image_tools as image_tools
 import tools.content_tools as content_tools
-import tools.content_tools as content_tools
+import tools.apify_tools as apify_tools
 import tools.gdrive_tools as gdrive_tools
 import tools.graphic_design_tools as graphic_design_tools
 
@@ -85,6 +86,18 @@ MODEL = "gemini-2.5-flash"
 AURA_TOOLS = [
     types.Tool(function_declarations=[
         types.FunctionDeclaration(
+            name="scrape_social_apify",
+            description="Scrape social media and e-commerce URLs (Facebook, Twitter/X, Instagram, Threads, Shopee) using Apify Actors. Returns title, text, images, and raw data.",
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "url": types.Schema(type=types.Type.STRING, description="Full URL to scrape"),
+                    "platform": types.Schema(type=types.Type.STRING, description="Optional. The platform name e.g., facebook, twitter, shopee."),
+                },
+                required=["url"]
+            )
+        ),
+        types.FunctionDeclaration(
             name="scrape_url",
             description="Scrape a web page URL and return its title, main content, images, and links. Use TIER 1 Firecrawl (bot-bypass) first, falls back to native scraper. Call this when user sends a URL to process.",
             parameters=types.Schema(
@@ -110,7 +123,7 @@ AURA_TOOLS = [
         ),
         types.FunctionDeclaration(
             name="rewrite_content",
-            description="Rewrite article content in a specific Malaysian writing style for social media. Available styles: santai_malaysia, cikgu_fadhli, hook_pembaca, formal, emotional.",
+            description="Rewrite article content in a specific Malaysian writing style for social media. Available styles: affiliate, hook_pembeli, update_berita, santai_bercerita, cikgu_fadhli.",
             parameters=types.Schema(
                 type=types.Type.OBJECT,
                 properties={
@@ -274,6 +287,8 @@ def dispatch_tool(name: str, args: dict) -> Any:
             return gdrive_tools.search_drive_files(**args)
         elif name == "save_text_to_drive":
             return gdrive_tools.save_text_to_drive(**args)
+        elif name == "scrape_social_apify":
+            return apify_tools.scrape_social_apify(**args)
         else:
             return {"status": "error", "error": f"Unknown tool: {name}"}
     except Exception as e:
@@ -453,6 +468,30 @@ async def handle_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     SessionManager.delete_session(chat_id)
     await update.message.reply_text("Conversation history cleared. Fresh start! 👍")
 
+async def handle_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Analyze a stock using AURA CrewTrading (LangGraph Agent)."""
+    chat_id = str(update.effective_chat.id)
+    if not is_authorized(chat_id):
+        return
+        
+    if not context.args:
+        await update.message.reply_text("Sila masukkan simbol saham. Contoh: /analyze 1155.KL")
+        return
+        
+    symbol = context.args[0]
+    
+    # Send typing action and initial message
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    status_msg = await update.message.reply_text(f"🔍 Sedang menganalisis saham {symbol} berdasarkan gaya pelaburan ASB...")
+    
+    # Run analysis (sync to async using asyncio.to_thread to prevent blocking)
+    try:
+        report = await asyncio.to_thread(analyze_stock_sync, symbol)
+        await status_msg.edit_text(report)
+    except Exception as e:
+        logger.error(f"Error in analyze: {e}")
+        await status_msg.edit_text(f"Ralat semasa menganalisis {symbol}. Sila cuba sebentar lagi.")
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Main message handler — routes all user messages through AURA agent."""
@@ -538,15 +577,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_text = reply_text.replace("[STYLE_BUTTONS]", "").strip()
             keyboard = [
                 [
-                    InlineKeyboardButton("👨‍🏫 Cikgu Fadhli", callback_data="style_cikgufadhli"),
-                    InlineKeyboardButton("✨ Sakluma", callback_data="style_sakluma")
+                    InlineKeyboardButton("🛒 Affiliate", callback_data="style_affiliate"),
+                    InlineKeyboardButton("🪝 Hook Pembeli", callback_data="style_hook_pembeli")
                 ],
                 [
-                    InlineKeyboardButton("💼 Marketing", callback_data="style_marketing"),
-                    InlineKeyboardButton("🏖️ Santai Malaysia", callback_data="style_santaimalaysia")
+                    InlineKeyboardButton("📰 Update Berita", callback_data="style_update_berita"),
+                    InlineKeyboardButton("📖 Santai Bercerita", callback_data="style_santai_bercerita")
                 ],
                 [
-                    InlineKeyboardButton("📱 GenZ", callback_data="style_genz")
+                    InlineKeyboardButton("👨‍🏫 Cikgu Fadhli", callback_data="style_cikgufadhli")
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -595,11 +634,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Map callback data to style names
     style_map = {
-        "style_cikgufadhli": "Cikgu Fadhli",
-        "style_sakluma": "Sakluma",
-        "style_marketing": "Marketing",
-        "style_santaimalaysia": "Santai Malaysia",
-        "style_genz": "GenZ",
+        "style_affiliate": "affiliate",
+        "style_hook_pembeli": "hook_pembeli",
+        "style_update_berita": "update_berita",
+        "style_santai_bercerita": "santai_bercerita",
+        "style_cikgufadhli": "cikgu_fadhli",
     }
 
     mode_map = {
@@ -645,9 +684,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if "[STYLE_BUTTONS]" in reply_text:
                 reply_text = reply_text.replace("[STYLE_BUTTONS]", "").strip()
                 keyboard = [
-                    [InlineKeyboardButton("👨‍🏫 Cikgu Fadhli", callback_data="style_cikgufadhli"), InlineKeyboardButton("✨ Sakluma", callback_data="style_sakluma")],
-                    [InlineKeyboardButton("💼 Marketing", callback_data="style_marketing"), InlineKeyboardButton("🏖️ Santai Malaysia", callback_data="style_santaimalaysia")],
-                    [InlineKeyboardButton("📱 GenZ", callback_data="style_genz")]
+                    [InlineKeyboardButton("🛒 Affiliate", callback_data="style_affiliate"), InlineKeyboardButton("🪝 Hook Pembeli", callback_data="style_hook_pembeli")],
+                    [InlineKeyboardButton("📰 Update Berita", callback_data="style_update_berita"), InlineKeyboardButton("📖 Santai Bercerita", callback_data="style_santai_bercerita")],
+                    [InlineKeyboardButton("👨‍🏫 Cikgu Fadhli", callback_data="style_cikgufadhli")]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -694,6 +733,7 @@ def main():
     app.add_handler(CommandHandler("status", handle_status))
     app.add_handler(CommandHandler("buang", handle_buang))
     app.add_handler(CommandHandler("clear", handle_clear))
+    app.add_handler(CommandHandler("analyze", handle_analyze))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(handle_callback))
