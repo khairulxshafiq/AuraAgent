@@ -1,60 +1,49 @@
-import os
-import httpx
-from dotenv import load_dotenv
-
-load_dotenv()
-
-# Gunakan kunci yang disediakan oleh pengguna jika tiada dalam .env
-ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_API_KEY", "FJBZV988DSVIWAA2")
-FMP_KEY = os.getenv("FMP_API_KEY", "lClKyUztSgQiUHeZDRwLxlGQLmH8AqwL")
+import yfinance as yf
 
 def get_stock_quote(symbol: str) -> dict:
     """
-    Get the real-time stock quote from Financial Modeling Prep (FMP).
+    Get the real-time stock quote and basic info from Yahoo Finance.
     For Bursa Malaysia, append '.KL' (e.g. '1155.KL').
     """
-    url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}?apikey={FMP_KEY}"
     try:
-        response = httpx.get(url, timeout=10.0)
-        data = response.json()
-        if data and isinstance(data, list) and len(data) > 0:
-            info = data[0]
-            return {
-                "symbol": info.get("symbol"),
-                "name": info.get("name"),
-                "price": info.get("price"),
-                "changesPercentage": info.get("changesPercentage"),
-                "dayLow": info.get("dayLow"),
-                "dayHigh": info.get("dayHigh"),
-                "yearHigh": info.get("yearHigh"),
-                "yearLow": info.get("yearLow"),
-                "marketCap": info.get("marketCap"),
-                "pe": info.get("pe"),
-                "eps": info.get("eps")
-            }
-        return {"error": f"No quote data found for {symbol}"}
+        ticker = yf.Ticker(symbol)
+        info = ticker.info
+        if not info or "symbol" not in info:
+            return {"error": f"No quote data found for {symbol}"}
+            
+        return {
+            "symbol": info.get("symbol", symbol),
+            "name": info.get("shortName") or info.get("longName"),
+            "price": info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose"),
+            "dayLow": info.get("dayLow"),
+            "dayHigh": info.get("dayHigh"),
+            "yearHigh": info.get("fiftyTwoWeekHigh"),
+            "yearLow": info.get("fiftyTwoWeekLow"),
+            "marketCap": info.get("marketCap"),
+            "pe": info.get("trailingPE") or info.get("forwardPE"),
+            "eps": info.get("trailingEps") or info.get("forwardEps")
+        }
     except Exception as e:
         return {"error": str(e)}
 
 def get_financial_ratios(symbol: str) -> dict:
     """
-    Get fundamental financial ratios from FMP.
+    Get fundamental financial ratios from Yahoo Finance.
     Returns Dividend Yield, ROE, Payout Ratio, etc.
     """
-    url = f"https://financialmodelingprep.com/api/v3/ratios-ttm/{symbol}?apikey={FMP_KEY}"
     try:
-        response = httpx.get(url, timeout=10.0)
-        data = response.json()
-        if data and isinstance(data, list) and len(data) > 0:
-            ratios = data[0]
-            return {
-                "symbol": symbol,
-                "dividendYieldTTM": ratios.get("dividendYieldTTM"),
-                "payoutRatioTTM": ratios.get("payoutRatioTTM"),
-                "returnOnEquityTTM": ratios.get("returnOnEquityTTM"),
-                "priceToBookRatioTTM": ratios.get("priceToBookRatioTTM"),
-                "peRatioTTM": ratios.get("peRatioTTM")
-            }
-        return {"error": f"No ratios data found for {symbol}"}
+        ticker = yf.Ticker(symbol)
+        info = ticker.info
+        if not info or "symbol" not in info:
+            return {"error": f"No ratios data found for {symbol}"}
+            
+        return {
+            "symbol": symbol,
+            "dividendYieldTTM": info.get("dividendYield"),
+            "payoutRatioTTM": info.get("payoutRatio"),
+            "returnOnEquityTTM": info.get("returnOnEquity"),
+            "priceToBookRatioTTM": info.get("priceToBook"),
+            "peRatioTTM": info.get("trailingPE")
+        }
     except Exception as e:
         return {"error": str(e)}
