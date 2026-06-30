@@ -22,6 +22,8 @@ import re
 import json
 import asyncio
 import logging
+import datetime
+import pytz
 from typing import Optional, Any
 
 from dotenv import load_dotenv
@@ -44,6 +46,7 @@ from telegram.constants import ChatAction
 from core.persona import get_system_instructions
 from core import session as SessionManager
 from core.crew_trading import analyze_stock_sync
+from core.crew_trading_advanced import analyze_stock_crew
 
 import tools.web_tools as web_tools
 import tools.airtable_tools as airtable_tools
@@ -492,6 +495,45 @@ async def handle_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in analyze: {e}")
         await status_msg.edit_text(f"Ralat semasa menganalisis {symbol}. Sila cuba sebentar lagi.")
 
+async def handle_analyze_crew(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Analyze a stock using Multi-Agent CrewAI (Phase 3)."""
+    chat_id = str(update.effective_chat.id)
+    if not is_authorized(chat_id):
+        return
+        
+    if not context.args:
+        await update.message.reply_text("Sila masukkan simbol saham. Contoh: /analyze_crew 1155.KL")
+        return
+        
+    symbol = context.args[0]
+    
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    status_msg = await update.message.reply_text(f"🚀 Pasukan Ejen (Fundamental & Teknikal & Risiko) sedang mengkaji saham {symbol}... (Ini mungkin mengambil masa seminit)")
+    
+    try:
+        report = await asyncio.to_thread(analyze_stock_crew, symbol)
+        await status_msg.edit_text(f"**Laporan CrewAI untuk {symbol}:**\n\n{report}")
+    except Exception as e:
+        logger.error(f"Error in analyze_crew: {e}")
+        await status_msg.edit_text(f"Ralat CrewAI untuk {symbol}.")
+
+async def run_morning_watchlist(context: ContextTypes.DEFAULT_TYPE):
+    """Cron Job: Runs every morning at 8:00 AM"""
+    if not BOSS_CHAT_ID:
+        logger.warning("Cron Job skipped: BOSS_CHAT_ID is not set.")
+        return
+        
+    watchlist = ["5347.KL", "1155.KL", "1023.KL"]  # TNB, Maybank, CIMB
+    await context.bot.send_message(chat_id=BOSS_CHAT_ID, text="🌅 **Selamat Pagi Boss!** Mula menganalisis watchlist harian anda...")
+    
+    for symbol in watchlist:
+        try:
+            report = await asyncio.to_thread(analyze_stock_crew, symbol)
+            await context.bot.send_message(chat_id=BOSS_CHAT_ID, text=f"**Laporan Pagi {symbol}:**\n\n{report}")
+            await asyncio.sleep(2) # Prevent telegram flood limits
+        except Exception as e:
+            logger.error(f"Morning Cron Error {symbol}: {e}")
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Main message handler — routes all user messages through AURA agent."""
@@ -728,12 +770,18 @@ def main():
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
+    # --- Setup Job Queue (Cron Job) ---
+    my_tz = pytz.timezone("Asia/Kuala_Lumpur")
+    t = datetime.time(hour=8, minute=0, second=0, tzinfo=my_tz)
+    app.job_queue.run_daily(run_morning_watchlist, t, name="Morning Watchlist")
+
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("help", handle_help))
     app.add_handler(CommandHandler("status", handle_status))
     app.add_handler(CommandHandler("buang", handle_buang))
     app.add_handler(CommandHandler("clear", handle_clear))
     app.add_handler(CommandHandler("analyze", handle_analyze))
+    app.add_handler(CommandHandler("analyze_crew", handle_analyze_crew))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(handle_callback))
