@@ -7,7 +7,7 @@ from tools.stock_tools import get_stock_quote, get_financial_ratios
 from tools.technical_tools import get_rsi, get_sma
 
 # 1. Definisikan LLM
-llm = "gemini/gemini-1.5-pro"
+llm = "gemini/gemini-2.5-flash"
 
 # 2. Balut Python Functions kepada CrewAI Tools
 @tool("Get Stock Quote")
