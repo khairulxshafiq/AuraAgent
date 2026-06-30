@@ -39,8 +39,7 @@ system_message = SystemMessage(content=system_prompt)
 # 4. Bina LangGraph Agent (Single Agent React Architecture)
 crew_trading_agent = create_react_agent(
     model=llm,
-    tools=tools,
-    state_modifier=system_message
+    tools=tools
 )
 
 def analyze_stock_sync(symbol: str) -> str:
@@ -48,7 +47,7 @@ def analyze_stock_sync(symbol: str) -> str:
     Fungsi utama yang akan dipanggil oleh Telegram Bot.
     """
     try:
-        inputs = {"messages": [("user", f"Tolong analisa saham {symbol} mengikut gaya pelaburan ASB.")]}
+        inputs = {"messages": [system_message, ("user", f"Tolong analisa saham {symbol} mengikut gaya pelaburan ASB.")]}
         result = crew_trading_agent.invoke(inputs)
         return result["messages"][-1].content
     except Exception as e:
