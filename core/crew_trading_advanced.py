@@ -2,7 +2,7 @@ import os
 import asyncio
 from crewai import Agent, Task, Crew, Process
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.tools import Tool
+from langchain_core.tools import Tool
 
 from tools.stock_tools import get_stock_quote, get_financial_ratios
 from tools.technical_tools import get_rsi, get_sma
