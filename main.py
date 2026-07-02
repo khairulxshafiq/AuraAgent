@@ -29,6 +29,9 @@ from typing import Optional, Any
 from dotenv import load_dotenv
 load_dotenv()
 
+# Add apps/aura-crewai to sys.path to allow importing from crews and shared
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), 'apps', 'aura-crewai')))
+
 import google.genai as genai
 from google.genai import types
 
@@ -43,18 +46,18 @@ from telegram.ext import (
 )
 from telegram.constants import ChatAction
 
-from core.persona import get_system_instructions
-from core import session as SessionManager
-from core.crew_trading import analyze_stock_sync
-from core.crew_trading_advanced import analyze_stock_crew
+from shared.prompts.persona import get_system_instructions
+from shared.state import session as SessionManager
+from crews.crew_trading.crew import analyze_stock_sync
+from crews.crew_trading_advanced.crew import analyze_stock_crew
 
-import tools.web_tools as web_tools
-import tools.airtable_tools as airtable_tools
-import tools.image_tools as image_tools
-import tools.content_tools as content_tools
-import tools.apify_tools as apify_tools
-import tools.gdrive_tools as gdrive_tools
-import tools.graphic_design_tools as graphic_design_tools
+import shared.tools.web_tools as web_tools
+import shared.tools.airtable_tools as airtable_tools
+import shared.tools.image_tools as image_tools
+import shared.tools.content_tools as content_tools
+import shared.tools.apify_tools as apify_tools
+import shared.tools.gdrive_tools as gdrive_tools
+import shared.tools.graphic_design_tools as graphic_design_tools
 
 # ─── Logging Setup ────────────────────────────────────────────────────────────
 
@@ -70,6 +73,7 @@ logger = logging.getLogger("aura.main")
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+logger.debug(f"GEMINI_API_KEY length={len(GEMINI_API_KEY)}")
 BOSS_CHAT_ID = os.environ.get("BOSS_CHAT_ID", "")
 BOSS_NAME = os.environ.get("BOSS_NAME", "Matrol")
 DEFAULT_BRAND = os.environ.get("DEFAULT_BRAND", "Sakluma")
@@ -324,19 +328,27 @@ async def run_aura_agent(chat_id: str, user_message: str) -> str:
     final_text = ""
 
     for round_num in range(MAX_TOOL_ROUNDS):
-        response = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: _client.models.generate_content(
-                model=MODEL,
-                contents=history,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_INSTRUCTIONS,
-                    tools=AURA_TOOLS,
-                    temperature=0.7,
-                    max_output_tokens=2048,
+        try:
+            response = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: _client.models.generate_content(
+                    model=MODEL,
+                    contents=history,
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM_INSTRUCTIONS,
+                        tools=AURA_TOOLS,
+                        temperature=0.7,
+                        max_output_tokens=2048,
+                    )
                 )
             )
-        )
+        except Exception as e:
+            logger.error(f"[GENAI ERROR] {e}")
+            # If the error is due to invalid API key, inform the user
+            if "API key not valid" in str(e):
+                return "❌ API key invalid. Sila semak GEMINI_API_KEY dalam .env dan deploy semula."
+            else:
+                return f"❌ Ralat semasa menghasilkan respons: {e}"
 
         candidate = response.candidates[0] if response.candidates else None
         if not candidate:

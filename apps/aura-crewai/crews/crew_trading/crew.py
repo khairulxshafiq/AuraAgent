@@ -4,20 +4,13 @@ from langchain_core.messages import SystemMessage
 from langgraph.prebuilt import create_react_agent
 
 # Import tools yang memanggil API FMP / Alpha Vantage secara terus
-from tools.stock_tools import get_stock_quote, get_financial_ratios
+from shared.tools.stock_tools import get_stock_quote, get_financial_ratios
 
 # 1. Definisikan Tools
-tools = [get_stock_quote, get_financial_ratios]
-
-# 2. Definisikan LLM (Pastikan GEMINI_API_KEY ada di dalam .env)
-# Kita gunakan gemini-1.5-pro kerana ia stabil untuk tool calling di LangChain
-llm = ChatGoogleGenerativeAI(
-    model="gemini-1.5-pro",
-    temperature=0.2
-)
+_tools = [get_stock_quote, get_financial_ratios]
 
 # 3. Definisikan Persona & Sistem Arahan
-system_prompt = """
+_system_prompt = """
 Anda adalah 'AURA CrewTrading Decision Agent', seorang penganalisis saham pakar yang menfokuskan pelaburan jangka panjang gaya 'ASB' (dividen & kestabilan).
 Anda sentiasa menggunakan tools yang disediakan untuk mendapatkan data pasaran sebenar. JANGAN sesekali mereka cipta (hallucinate) data!
 
@@ -34,21 +27,45 @@ Tugas anda:
 4. Berikan kesimpulan akhir: BUY, HOLD, atau WATCH.
 5. Formatkan output dengan emoji dan perenggan yang kemas, sesuai untuk Telegram.
 """
-system_message = SystemMessage(content=system_prompt)
+_system_message = SystemMessage(content=_system_prompt)
 
-# 4. Bina LangGraph Agent (Single Agent React Architecture)
-crew_trading_agent = create_react_agent(
-    model=llm,
-    tools=tools
-)
+
+def _build_agent():
+    """
+    Lazily build the LangGraph agent when first needed so that
+    ChatGoogleGenerativeAI is not instantiated at import time.
+    This prevents a ValidationError when GEMINI_API_KEY is loaded
+    after the module is first imported.
+    """
+    # 2. Definisikan LLM — called lazily so env vars are already loaded.
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-1.5-pro",
+        temperature=0.2
+    )
+    return create_react_agent(model=llm, tools=_tools)
+
+
+# Module-level cache — populated on first call to analyze_stock_sync
+_agent = None
+
 
 def analyze_stock_sync(symbol: str) -> str:
     """
     Fungsi utama yang akan dipanggil oleh Telegram Bot.
+    Agent is lazily initialised on first call (after dotenv is loaded).
     """
+    global _agent
+    if _agent is None:
+        _agent = _build_agent()
+
     try:
-        inputs = {"messages": [system_message, ("user", f"Tolong analisa saham {symbol} mengikut gaya pelaburan ASB.")]}
-        result = crew_trading_agent.invoke(inputs)
+        inputs = {
+            "messages": [
+                _system_message,
+                ("user", f"Tolong analisa saham {symbol} mengikut gaya pelaburan ASB.")
+            ]
+        }
+        result = _agent.invoke(inputs)
         return result["messages"][-1].content
     except Exception as e:
         return f"Ralat semasa menganalisis {symbol}: {str(e)}"

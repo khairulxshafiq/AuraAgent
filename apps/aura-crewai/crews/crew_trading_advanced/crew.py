@@ -2,9 +2,8 @@ import os
 import asyncio
 from crewai import Agent, Task, Crew, Process
 from crewai.tools import tool
-
-from tools.stock_tools import get_stock_quote, get_financial_ratios
-from tools.technical_tools import get_rsi, get_sma
+from shared.tools.stock_tools import get_stock_quote, get_financial_ratios
+from shared.tools.technical_tools import get_rsi, get_sma
 
 # 1. Definisikan LLM
 llm = "gemini/gemini-2.5-flash"
